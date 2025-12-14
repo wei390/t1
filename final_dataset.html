@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Winter Magic - Crystal Clear Version</title>
     <style>
-        /* --- 沉浸式极夜背景 (加深背景以衬托晶莹剔透的粒子) --- */
+        /* --- 沉浸式极夜背景 --- */
         body { 
             margin: 0; 
             background: radial-gradient(circle at center, #050a14 0%, #000000 100%);
@@ -59,22 +59,11 @@
         }
         #music-icon { font-size: 20px; }
 
-        /* --- 视觉诊断窗口 --- */
+        /* --- 隐藏视觉UI --- */
         #vision-ui {
-            position: absolute; bottom: 20px; right: 20px;
-            width: 240px; height: 180px;
-            border-radius: 12px; overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: #000; z-index: 10;
-            transform: scaleX(-1);
-            box-shadow: 0 0 30px rgba(0,0,0,0.8);
-            opacity: 0.8; /* 稍微降低不透明度，不抢眼 */
+            display: none;
         }
-        #webcam-video, #debug-canvas {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            object-fit: cover;
-        }
-        
+
         /* --- 加载页 --- */
         #loader {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -108,7 +97,7 @@
 
     <audio id="bgm" loop>
         <source src="we_dont_talk_anymore_guitar.mp3" type="audio/mpeg">
-        <source src="https://cdn.pixabay.com/download/audio/2022/11/22/audio_febc508520.mp3" type="audio/mpeg"> 
+        <source src="https://cdn.pixabay.com/download/audio/2022/11/22/audio_febc508520.mp3" type="audio/mpeg">
     </audio>
 
     <div id="loader">
@@ -132,6 +121,7 @@
         </div>
     </div>
 
+    <!-- 隐藏但保留用于 MediaPipe -->
     <div id="vision-ui">
         <video id="webcam-video" playsinline muted autoplay></video>
         <canvas id="debug-canvas"></canvas>
@@ -149,17 +139,13 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-        // ================= 【核心配置调整区域】 =================
         const CONFIG = {
-            particleCount: 1500, // 粒子数量
-            // 颜色：纯白, 清透蓝, 冰蓝, 银灰
-            colors: [0xFFFFFF, 0x87CEEB, 0xE0FFFF, 0xB0C4DE], 
-            
-            // --- 修复曝光的关键设置 ---
+            particleCount: 1500,
+            colors: [0xFFFFFF, 0x87CEEB, 0xE0FFFF, 0xB0C4DE],
             bloom: { 
-                threshold: 0.25, // [调高] 只有亮度超过0.25的部分才发光，减少背景光晕
-                strength: 0.45,  // [降低] 辉光强度，从0.9降到0.45，更柔和
-                radius: 0.4      // [降低] 光晕扩散半径，看起来更锐利清爽
+                threshold: 0.25,
+                strength: 0.45,
+                radius: 0.4
             }
         };
 
@@ -169,6 +155,7 @@
         let textPoints = [];
 
         // ================= 音乐控制 =================
+        let bgmPlayedOnce = false;
         window.toggleMusic = function() {
             const audio = document.getElementById('bgm');
             const icon = document.getElementById('music-icon');
@@ -177,39 +164,35 @@
                     icon.innerText = "🎸";
                     icon.style.color = "#87CEEB";
                     icon.style.textShadow = "0 0 10px #87CEEB";
-                }).catch(() => alert("Interact with page first!"));
+                }).catch(() => {
+                    alert("Audio play failed. Please interact with the page first.");
+                });
             } else {
                 audio.pause();
                 icon.innerText = "🔇";
                 icon.style.color = "#fff";
                 icon.style.textShadow = "none";
             }
-        }
+        };
 
-        // ================= 纹理生成 (降低中心亮度) =================
+        // ================= 纹理 & 场景初始化 =================
         function createIceTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 64; canvas.height = 64; // 稍微减小纹理尺寸提高性能
+            canvas.width = 64; canvas.height = 64;
             const ctx = canvas.getContext('2d');
             const cx = 32, cy = 32;
-
-            // 1. 核心光晕 (调整Alpha，避免死白)
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 30);
-            grad.addColorStop(0, 'rgba(255,255,255, 0.9)'); // 中心透明度略降
+            grad.addColorStop(0, 'rgba(255,255,255, 0.9)');
             grad.addColorStop(0.4, 'rgba(200,240,255, 0.5)'); 
             grad.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = grad;
             ctx.fillRect(0,0,64,64);
-
-            // 2. 冰晶星芒 (细锐化)
-            ctx.strokeStyle = 'rgba(255,255,255,0.8)'; // 线条不完全不透明
+            ctx.strokeStyle = 'rgba(255,255,255,0.8)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            // 十字
             ctx.moveTo(cx, 4); ctx.lineTo(cx, 60);
             ctx.moveTo(4, cy); ctx.lineTo(60, cy);
             ctx.stroke();
-
             return new THREE.CanvasTexture(canvas);
         }
 
@@ -225,81 +208,62 @@
             return new THREE.CanvasTexture(canvas);
         }
 
-        // ================= 文字坐标计算 =================
         function calculateTextPositions() {
             const canvas = document.createElement('canvas');
-            const w = 500; const h = 250; 
+            const w = 500; const h = 250;
             canvas.width = w; canvas.height = h;
             const ctx = canvas.getContext('2d');
-            
-            // 使用更细的字体，减少粒子聚集导致的过曝
-            ctx.font = '400 65px "Segoe UI", sans-serif'; 
+            ctx.font = '400 65px "Segoe UI", sans-serif';
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText("Merry", w/2, h/2 - 35);
             ctx.fillText("Christmas", w/2, h/2 + 35);
-
             const data = ctx.getImageData(0, 0, w, h).data;
             const points = [];
-            const step = 4; // 采样密度
-
+            const step = 4;
             for(let y = 0; y < h; y += step) {
                 for(let x = 0; x < w; x += step) {
                     if(data[(y * w + x) * 4 + 3] > 128) {
-                        points.push({
-                            x: (x / w - 0.5) * 10, 
-                            y: -(y / h - 0.5) * 5, 
-                            z: 0
-                        });
+                        points.push({ x: (x / w - 0.5) * 10, y: -(y / h - 0.5) * 5, z: 0 });
                     }
                 }
             }
             return points;
         }
 
-        // ================= Three.js 场景 =================
         function initScene() {
             scene = new THREE.Scene();
-            // 雾气调暗，增加深邃感
             scene.fog = new THREE.FogExp2(0x050a14, 0.02);
-
             camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
             camera.position.set(0, 0, 9);
 
             renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.toneMapping = THREE.ReinhardToneMapping; // 色调映射，防止过曝
+            renderer.toneMapping = THREE.ReinhardToneMapping;
             document.body.appendChild(renderer.domElement);
 
-            // --- Post Processing ---
             const renderPass = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(window.innerWidth, window.innerHeight),
                 CONFIG.bloom.strength, CONFIG.bloom.radius, CONFIG.bloom.threshold
             );
-            bloomPass.tintColor = new THREE.Color(0x87CEEB); 
-            
+            bloomPass.tintColor = new THREE.Color(0x87CEEB);
             composer = new EffectComposer(renderer);
             composer.addPass(renderPass);
             composer.addPass(bloomPass);
             composer.addPass(new OutputPass());
 
-            // --- 粒子系统 ---
             const geo = new THREE.BufferGeometry();
             const pos = [], cols = [], sizes = [];
             const colorHelper = new THREE.Color();
-
             for(let i=0; i<CONFIG.particleCount; i++) {
                 pos.push((Math.random()-0.5)*15, (Math.random()-0.5)*15, (Math.random()-0.5)*10);
-                
                 colorHelper.setHex(CONFIG.colors[Math.floor(Math.random()*CONFIG.colors.length)]);
                 cols.push(colorHelper.r, colorHelper.g, colorHelper.b);
-                
-                sizes.push(Math.random()); 
+                sizes.push(Math.random());
             }
-
             geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
             geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
             geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
@@ -308,13 +272,11 @@
                 size: 0.25,
                 map: createIceTexture(),
                 vertexColors: true,
-                // [修改] 混合模式虽然保留 Additive，但降低透明度
-                blending: THREE.AdditiveBlending, 
+                blending: THREE.AdditiveBlending,
                 depthWrite: false,
                 transparent: true,
-                opacity: 0.8 // [降低] 降低整体透明度，减少叠加后的亮度
+                opacity: 0.8
             });
-
             particles = new THREE.Points(geo, mat);
             scene.add(particles);
 
@@ -333,34 +295,28 @@
             const snowCount = 350;
             const geo = new THREE.BufferGeometry();
             const pos = [], vels = [];
-            
             for(let i=0; i<snowCount; i++) {
                 pos.push((Math.random()-0.5)*25, (Math.random()-0.5)*25, (Math.random()-0.5)*10 - 5);
-                vels.push(0.01 + Math.random() * 0.03); 
+                vels.push(0.01 + Math.random() * 0.03);
             }
-            
             geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
             geo.setAttribute('velocity', new THREE.Float32BufferAttribute(vels, 1));
-            
             const mat = new THREE.PointsMaterial({
                 size: 0.1,
                 map: createSnowTexture(),
                 color: 0xffffff,
                 transparent: true,
-                opacity: 0.5, // 雪花更淡
+                opacity: 0.5,
                 depthWrite: false,
                 blending: THREE.AdditiveBlending
             });
-            
             snowSystem = new THREE.Points(geo, mat);
             scene.add(snowSystem);
         }
 
-        // ================= 变换逻辑 =================
         function transformTo(shape) {
             if (currentState === shape) return;
             currentState = shape;
-            
             const stateEl = document.getElementById('val-state');
             if (shape === 'GRID') {
                 stateEl.innerText = "MERRY XMAS";
@@ -375,45 +331,37 @@
             indices.sort(() => Math.random() - 0.5);
 
             for(let i=0; i<CONFIG.particleCount; i++) {
-                const pIndex = indices[i]; 
+                const pIndex = indices[i];
                 let tx, ty, tz;
-
                 if (shape === 'TREE') {
-                    const t = i / CONFIG.particleCount; 
-                    const angle = t * Math.PI * 26; 
-                    const radius = (1 - t) * 3.2; 
+                    const t = i / CONFIG.particleCount;
+                    const angle = t * Math.PI * 26;
+                    const radius = (1 - t) * 3.2;
                     tx = Math.cos(angle) * radius;
                     ty = (t * 9) - 4.5;
                     tz = Math.sin(angle) * radius;
-                } 
-                else if (shape === 'GRID') {
+                } else if (shape === 'GRID') {
                     if (i < textPoints.length) {
-                        tx = textPoints[i].x;
-                        ty = textPoints[i].y;
-                        tz = textPoints[i].z;
+                        ({x: tx, y: ty, z: tz} = textPoints[i]);
                     } else {
-                        // 剩余粒子形成光环，稍微扩大半径避免拥挤
                         const angle = Math.random() * Math.PI * 2;
                         const r = 7 + Math.random() * 2;
                         tx = Math.cos(angle) * r;
                         ty = Math.sin(angle) * r;
                         tz = (Math.random()-0.5) * 4;
                     }
-                } 
-                else { // SCATTER
+                } else {
                     const u = Math.random();
                     const v = Math.random();
                     const theta = 2 * Math.PI * u;
                     const phi = Math.acos(2 * v - 1);
-                    const r = 5 + Math.random() * 3; // 扩散得更开一些
+                    const r = 5 + Math.random() * 3;
                     tx = r * Math.sin(phi) * Math.cos(theta);
                     ty = r * Math.sin(phi) * Math.sin(theta);
                     tz = r * Math.cos(phi);
                 }
-
                 const idx = pIndex * 3;
                 const temp = { x: positions[idx], y: positions[idx+1], z: positions[idx+2] };
-                
                 gsap.to(temp, {
                     x: tx, y: ty, z: tz,
                     duration: 1.5 + Math.random() * 1.5,
@@ -427,11 +375,10 @@
             }
         }
 
-        // ================= 视觉识别 =================
+        // ================= 视觉识别（无UI） =================
         function initVision() {
             const video = document.getElementById('webcam-video');
             const canvas = document.getElementById('debug-canvas');
-            const ctx = canvas.getContext('2d');
 
             const hands = new Hands({
                 locateFile: (file) => `https://unpkg.com/@mediapipe/hands/${file}`
@@ -445,12 +392,19 @@
             });
 
             hands.onResults(results => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // 不绘制任何内容到 canvas
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                     const lm = results.multiHandLandmarks[0];
-                    drawConnectors(ctx, lm, HAND_CONNECTIONS, {color: '#87CEEB', lineWidth: 2});
-                    drawLandmarks(ctx, lm, {color: '#FFFFFF', lineWidth: 1, radius: 2});
                     analyzeGesture(lm);
+
+                    // 首次成功识别即尝试播放 BGM（满足浏览器策略）
+                    if (!bgmPlayedOnce) {
+                        bgmPlayedOnce = true;
+                        const audio = document.getElementById('bgm');
+                        audio.play().catch(() => {
+                            // 自动播放失败，用户需手动点击
+                        });
+                    }
                 }
             });
 
@@ -472,13 +426,13 @@
         }
 
         function analyzeGesture(lm) {
-            const tips = [8, 12, 16, 20]; 
-            const pips = [6, 10, 14, 18]; 
+            const tips = [8, 12, 16, 20];
+            const pips = [6, 10, 14, 18];
             let fingersUp = 0;
-            tips.forEach((tip, i) => { if (lm[tip].y < lm[pips[i]].y) fingersUp++; });
-
+            tips.forEach((tip, i) => {
+                if (lm[tip].y < lm[pips[i]].y) fingersUp++;
+            });
             const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-
             document.getElementById('ui-fingers').innerText = fingersUp;
             document.getElementById('ui-pinch').innerText = d.toFixed(2);
 
@@ -486,7 +440,7 @@
             if (now - lastTriggerTime < 800) return;
 
             if (d < 0.05) {
-                transformTo('GRID'); 
+                transformTo('GRID');
                 lastTriggerTime = now;
             } else if (fingersUp <= 0) {
                 transformTo('TREE');
@@ -499,33 +453,29 @@
 
         // ================= 动画循环 =================
         const clock = new THREE.Clock();
-
         function animate() {
             requestAnimationFrame(animate);
             const time = clock.getElapsedTime();
 
             if (particles) {
-                particles.rotation.y += 0.003; 
-                particles.geometry.attributes.position.needsUpdate = true;
-                
+                particles.rotation.y += 0.003;
                 const sizes = particles.geometry.attributes.size.array;
                 for(let i=0; i<CONFIG.particleCount; i++) {
-                    // 减缓呼吸频率，让闪烁更优雅
                     sizes[i] = 0.5 + Math.sin(time * 2.0 + i * 0.1) * 0.3;
                 }
                 particles.geometry.attributes.size.needsUpdate = true;
+                particles.geometry.attributes.position.needsUpdate = true;
             }
 
             if (snowSystem) {
                 const pos = snowSystem.geometry.attributes.position.array;
                 const vels = snowSystem.geometry.attributes.velocity.array;
                 const count = pos.length / 3;
-                
                 for(let i=0; i<count; i++) {
                     pos[i*3 + 1] -= vels[i];
                     if(pos[i*3 + 1] < -10) {
                         pos[i*3 + 1] = 10;
-                        pos[i*3] = (Math.random()-0.5) * 25; 
+                        pos[i*3] = (Math.random()-0.5) * 25;
                         pos[i*3 + 2] = (Math.random()-0.5) * 10 - 5;
                     }
                 }
@@ -539,7 +489,6 @@
         initScene();
         initVision();
         animate();
-
     </script>
 </body>
 </html>
