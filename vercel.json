@@ -9,7 +9,7 @@
     "routes": [
         {
             "src": "/",
-            "dest": "/inal_dataset.html"
+            "dest": "/final_dataset.html"
         }
     ]
 }
